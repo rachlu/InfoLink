@@ -2,7 +2,7 @@ import { ObjectId } from "mongodb";
 
 import { Router, getExpressRouter } from "./framework/router";
 
-import { Friend, Post, User, WebSession } from "./app";
+import { Friend, Post, Report, Tag, Timeout, User, WebSession } from "./app";
 import { PostDoc, PostOptions } from "./concepts/post";
 import { UserDoc } from "./concepts/user";
 import { WebSessionDoc } from "./concepts/websession";
@@ -28,7 +28,14 @@ class Routes {
   @Router.post("/users")
   async createUser(session: WebSessionDoc, username: string, password: string) {
     WebSession.isLoggedOut(session);
-    return await User.create(username, password);
+    const created = await User.create(username, password);
+    const createdUser = created.user;
+    let msg = created.msg;
+    if (createdUser) {
+      const timeoutResult = await Timeout.block(createdUser._id, 60);
+      msg += " " + timeoutResult.msg;
+    }
+    return { msg: msg, user: created.user };
   }
 
   @Router.patch("/users")
@@ -72,6 +79,8 @@ class Routes {
   @Router.post("/posts")
   async createPost(session: WebSessionDoc, content: string, options?: PostOptions) {
     const user = WebSession.getUser(session);
+    await Timeout.freeUser(user);
+    await Timeout.notBlocked(user);
     const created = await Post.create(user, content, options);
     return { msg: created.msg, post: await Responses.post(created.post) };
   }
@@ -80,6 +89,8 @@ class Routes {
   async updatePost(session: WebSessionDoc, _id: ObjectId, update: Partial<PostDoc>) {
     const user = WebSession.getUser(session);
     await Post.isAuthor(user, _id);
+    await Timeout.freeUser(user);
+    await Timeout.notBlocked(user);
     return await Post.update(_id, update);
   }
 
@@ -87,6 +98,8 @@ class Routes {
   async deletePost(session: WebSessionDoc, _id: ObjectId) {
     const user = WebSession.getUser(session);
     await Post.isAuthor(user, _id);
+    await Timeout.freeUser(user);
+    await Timeout.notBlocked(user);
     return Post.delete(_id);
   }
 
@@ -135,6 +148,90 @@ class Routes {
     const user = WebSession.getUser(session);
     const fromId = (await User.getUserByUsername(from))._id;
     return await Friend.rejectRequest(fromId, user);
+  }
+
+  @Router.post("/report/:_id")
+  async reportEdit(session: WebSessionDoc, _id: ObjectId) {
+    const user = WebSession.getUser(session);
+    return await Report.create(user, _id);
+  }
+
+  @Router.delete("/report/:_id")
+  async deleteReport(session: WebSessionDoc, _id: ObjectId) {
+    const user = WebSession.getUser(session);
+    await Report.isReporter(user, _id);
+    return await Report.delete(user, _id);
+  }
+
+  @Router.get("/count/report/:tag")
+  async getReportTagNum(session: WebSessionDoc, tag: String) {
+    // Gets the number of reports an user has for specific tag
+  }
+
+  @Router.post("/edits")
+  async createEdit(session: WebSessionDoc, content: string) {
+    // Create an edit to a community tagged Post with given content
+  }
+
+  @Router.put("/edit/reported/:_id")
+  async approveEdit(session: WebSessionDoc, _id: ObjectId) {
+    // Let a verified user approve a reported edit
+  }
+
+  @Router.delete("/edit/reported/:_id")
+  async rejectEdit(session: WebSessionDoc, _id: ObjectId) {
+    // Let a verified user reject and delete a reported edit
+  }
+
+  @Router.post("/tags/:tag/:_id")
+  async addTag(session: WebSessionDoc, tag: String, _id: ObjectId) {
+    // Let an user add tag to given post _id if user is author of post
+    const user = WebSession.getUser(session);
+    await Post.isAuthor(user, _id);
+    await Timeout.freeUser(user);
+    await Timeout.notBlocked(user);
+    return Tag.addTag(tag, _id);
+  }
+
+  @Router.delete("/tags/:tag/:_id")
+  async deleteTag(session: WebSessionDoc, tag: String, _id: ObjectId) {
+    // Let an user delete a tag to a given post _id if user is author of post
+    const user = WebSession.getUser(session);
+    await Post.isAuthor(user, _id);
+    await Timeout.freeUser(user);
+    await Timeout.notBlocked(user);
+    return Tag.deleteTag(tag, _id);
+  }
+
+  @Router.get("/tags/:_id")
+  async getTags(session: WebSessionDoc, _id: ObjectId) {
+    const tags = await Tag.getTagsPost(_id);
+    return tags;
+  }
+
+  @Router.post("/comments/:_id")
+  async createComment(session: WebSessionDoc, _id: ObjectId, content: string) {
+    // Let an user create a comment for a specific post
+  }
+
+  @Router.delete("/comments/:_id")
+  async deleteComment(session: WebSessionDoc, _id: ObjectId) {
+    // Let an user delete their own comment
+  }
+
+  @Router.patch("/count/increment/:_id")
+  async incrementCount(session: WebSessionDoc, _id: ObjectId) {
+    // Let user increment count for a specific object with given ID
+  }
+
+  @Router.patch("/count/decrement/:_id")
+  async decrementCount(session: WebSessionDoc, _id: ObjectId) {
+    // Let user decrement count for a specific object with given ID
+  }
+
+  @Router.get("/count/:tag")
+  async getTagCount(session: WebSessionDoc, tag: String) {
+    // Get specific count an user has for a specific tag
   }
 }
 
