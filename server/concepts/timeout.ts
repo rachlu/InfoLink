@@ -9,6 +9,7 @@ export interface TimeOutDoc extends BaseDoc {
 
 export default class TimeoutConcept {
   public readonly timeouts = new DocCollection<TimeOutDoc>("timeout");
+  private readonly blockCondition = 1; // Number of reports needed to be blocked.
 
   async block(user: ObjectId, secs: number) {
     await this.notBlocked(user);
@@ -16,6 +17,13 @@ export default class TimeoutConcept {
     expire.setSeconds(expire.getSeconds() + secs);
     const _id = await this.timeouts.createOne({ user, expire });
     return { msg: `User Blocked! until ${expire}`, user: await this.timeouts.readOne({ _id }) };
+  }
+
+  async blockUpdate(user: ObjectId, num: number, secs: number) {
+    if (num >= this.blockCondition && !(await this.isBlocked(user))) {
+      return this.block(user, secs);
+    }
+    return { msg: "Block condition not satisfied" };
   }
 
   async getUsersUnblockedAt() {
@@ -28,7 +36,7 @@ export default class TimeoutConcept {
   async isUserExpired(userID: ObjectId) {
     const user = await this.timeouts.readOne({ user: userID });
     if (!user) {
-      return true;
+      return false;
     }
 
     const currentTime = new Date();
@@ -43,9 +51,9 @@ export default class TimeoutConcept {
     // Free specific User with _id
     if (await this.isUserExpired(_id)) {
       await this.timeouts.deleteOne({ user: _id });
-      return { msg: "Blocked User freed!" };
+      return { msg: "Blocked User freed!", state: true };
     }
-    return { msg: "No User freed!" };
+    return { msg: "No User freed!", state: false };
   }
 
   async existsBlockedUser(userID: ObjectId) {
@@ -53,6 +61,14 @@ export default class TimeoutConcept {
     if (!user) {
       throw new NotAllowedError(`User with UserID ${userID} is not blocked`);
     }
+  }
+
+  async isBlocked(userID: ObjectId) {
+    const blockedUser = await this.timeouts.readOne({ user: userID });
+    if (blockedUser) {
+      return true;
+    }
+    return false;
   }
 
   async notBlocked(userID: ObjectId) {
